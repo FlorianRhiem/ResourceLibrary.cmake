@@ -1,0 +1,11 @@
+test:
+  image: ubuntu:18.04
+  script:
+  - apt update
+  - apt install -y cmake make g++
+  - mkdir build
+  - cd build
+  - cmake ../example
+  - make
+  - ./Example | grep "example resource file"
+ 
