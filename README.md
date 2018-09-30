@@ -1,5 +1,10 @@
 # ResourceLibrary.cmake
 
+[![pipeline status](https://gitlab.com/florianrhiem/resourcelibrary.cmake/badges/master/pipeline.svg)](https://gitlab.com/florianrhiem/resourcelibrary.cmake/pipelines?scope=branches)
+[![CMake 3.1+ required](https://img.shields.io/badge/cmake-3.1%2B-blue.svg)](ResourceLibrary.cmake#L1)
+[![MIT license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+
 This CMake module provides the function `add_resource_library`, which can be used to embed binary or text resource files into a static or shared library.
 
 ```CMake
