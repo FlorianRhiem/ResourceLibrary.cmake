@@ -1,4 +1,4 @@
-test:
+test-cxx:
   image: ubuntu:18.04
   script:
   - apt update
@@ -8,4 +8,14 @@ test:
   - cmake ../example
   - make
   - ./Example | grep "example resource file"
- 
+
+test-asm:
+  image: ubuntu:18.04
+  script:
+  - apt update
+  - apt install -y cmake make g++
+  - mkdir build
+  - cd build
+  - cmake ../example -DRESOURCE_LIBRARY_USE_ASM=ON
+  - make
+  - ./Example | grep "example resource file"

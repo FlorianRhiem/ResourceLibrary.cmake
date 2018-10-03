@@ -15,15 +15,16 @@ add_resource_library(name <STATIC | SHARED> [file1] [file2 ...])
 
 1. Copy [ResourceLibrary.cmake](ResourceLibrary.cmake) to a directory in your module path, e.g. *cmake*
 2. Include it in your *CMakeLists.txt* using `include(ResourceLibrary)`
-3. Define a resource library, either STATIC or SHARED, containing a list of files:
+3. (Optional) When using GCC, Clang or Apple Clang, set `RESOURCE_LIBRARY_USE_ASM` to `On` (see *How it works* below)
+4. Define a resource library, either STATIC or SHARED, containing a list of files:
    ```CMake
    add_resource_library(ExampleResourceLibrary STATIC example.txt directory/example.png)
    ```
-4. Add it to another target's link libraries:
+5. Add it to another target's link libraries:
    ```CMake
    target_link_libraries(ExampleTarget ExampleResourceLibrary)
    ```
-5. Include the resource library's header file, with the same name as its target:
+6. Include the resource library's header file, with the same name as its target:
    ```C++
    #include<ExampleResourceLibrary.h>
    ```
@@ -47,4 +48,4 @@ See the [example](example) directory for a minimal project using a resource libr
 
 Calling `add_resource_library` will create a library target and a series of custom commands, one to create the header file, one for each resource, and one for a loader file which contains the implementations of the functions above. These commands call [ResourceLibrary.cmake](ResourceLibrary.cmake) in script mode to generate the files.
 
-The resource files are read, their contents are converted to byte-wise hex representation and then used as initializers for a `std::vector<std::uint8_t>`. These are stored in structs, along with their file names, and moved to a per-library `std::map` when the resource library is first used.
+By default, the contents of the resource files are converted to byte-wise hex representation and then used as initializers for `unsigned char` arrays. When the CMake option `RESOURCE_LIBRARY_USE_ASM` is set to `On`, the resources are directly included in x86 assembly files using `.incbin`. In both cases, the arrays are used to create a `std::vector<std::uint8_t>` for each resource in a per-library `std::map` once the resource library is first used.

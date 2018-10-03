@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 
 if (NOT CMAKE_ARGC)
     set(RESOURCE_LIBRARY_CMAKE_FILE "${CMAKE_CURRENT_LIST_FILE}")
+    option(RESOURCE_LIBRARY_USE_ASM "ResourceLibrary.cmake uses assembly for embedding resources" OFF)
+    enable_language(ASM)
 
     define_property(TARGET PROPERTY RESOURCES
         BRIEF_DOCS "Resource names specified for a resource library target."
@@ -27,20 +29,31 @@ if (NOT CMAKE_ARGC)
         # Generate targets for resources
         set(resource_num "0")
         foreach(resource_file IN LISTS ARGN)
-            math(EXPR resource_num "${resource_num} + 1")
-            set(resource_file_cxx "${CMAKE_CURRENT_BINARY_DIR}/${library_name}/src/${library_name}_${resource_num}.cpp")
-            target_sources(${library_name} PRIVATE ${resource_file_cxx})
             if(IS_ABSOLUTE ${resource_file})
                 set(resource_file_abspath "${resource_file}")
             else()
                 set(resource_file_abspath "${CMAKE_CURRENT_LIST_DIR}/${resource_file}")
             endif()
-            add_custom_command(OUTPUT "${resource_file_cxx}"
-                COMMAND ${CMAKE_COMMAND} -P "${RESOURCE_LIBRARY_CMAKE_FILE}" resource "${resource_file_cxx}" "${library_name}" "${resource_num}" "${resource_file}" "${resource_file_abspath}"
-                COMMENT "Embedding resource '${resource_file}' in resource library '${library_name}'"
-                DEPENDS ${resource_file}
-                WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${library_name}
-            )
+            math(EXPR resource_num "${resource_num} + 1")
+            if(RESOURCE_LIBRARY_USE_ASM)
+                set(resource_file_asm "${CMAKE_CURRENT_BINARY_DIR}/${library_name}/src/${library_name}_${resource_num}.s")
+                target_sources(${library_name} PRIVATE ${resource_file_asm})
+                add_custom_command(OUTPUT "${resource_file_asm}"
+                    COMMAND ${CMAKE_COMMAND} -P "${RESOURCE_LIBRARY_CMAKE_FILE}" resource_asm "${resource_file_asm}" "${library_name}" "${resource_num}" "${resource_file}" "${resource_file_abspath}" "${CMAKE_ASM_COMPILER_ID}"
+                    COMMENT "Embedding resource '${resource_file}' in resource library '${library_name}'"
+                    DEPENDS ${resource_file}
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${library_name}
+                )
+            else()
+                set(resource_file_cxx "${CMAKE_CURRENT_BINARY_DIR}/${library_name}/src/${library_name}_${resource_num}.cpp")
+                target_sources(${library_name} PRIVATE ${resource_file_cxx})
+                add_custom_command(OUTPUT "${resource_file_cxx}"
+                    COMMAND ${CMAKE_COMMAND} -P "${RESOURCE_LIBRARY_CMAKE_FILE}" resource_cxx "${resource_file_cxx}" "${library_name}" "${resource_num}" "${resource_file}" "${resource_file_abspath}"
+                    COMMENT "Embedding resource '${resource_file}' in resource library '${library_name}'"
+                    DEPENDS ${resource_file}
+                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${library_name}
+                )
+            endif()
         endforeach()
 
         # Generate target for resource library loader
@@ -76,7 +89,7 @@ else()
             "#endif\n"
         )
         file(WRITE ${library_h} "${library_h_content}")
-    elseif (${CMAKE_ARGV3} STREQUAL "resource")
+    elseif (${CMAKE_ARGV3} STREQUAL "resource_cxx")
         # Generate resource
         set(resource_file_cxx "${CMAKE_ARGV4}")
         set(library_name "${CMAKE_ARGV5}")
@@ -87,20 +100,56 @@ else()
         string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," resource_data ${resource_data})
         string(CONCAT resource_file_cxx_content
             "/* Resource Library '${library_name}' resource */\n"
-            "#include <vector>\n"
-            "#include <string>\n"
-            "#include <cstdint>\n"
             "\n"
-            "namespace ${library_name} {\n"
-            "    struct Resource {\n"
-            "        Resource(const std::string& resource_name, const std::vector<std::uint8_t>& resource_data) : m_resource_name(resource_name), m_resource_data(resource_data) {};\n"
-            "        const std::string m_resource_name;\n"
-            "        const std::vector<std::uint8_t> m_resource_data;\n"
-            "    };\n"
-            "    Resource resource_${resource_num}(\"${resource_file}\", {${resource_data}});\n"
-            "};\n"
+            "char ${library_name}_resource_${resource_num}_name[] = \"${resource_file}\";\n"
+            "unsigned char ${library_name}_resource_${resource_num}_data[] = {${resource_data}};\n"
+            "unsigned int ${library_name}_resource_${resource_num}_size = sizeof(${library_name}_resource_${resource_num}_data);\n"
         )
         file(WRITE ${resource_file_cxx} "${resource_file_cxx_content}")
+    elseif (${CMAKE_ARGV3} STREQUAL "resource_asm")
+        # Generate resource
+        set(resource_file_asm "${CMAKE_ARGV4}")
+        set(library_name "${CMAKE_ARGV5}")
+        set(resource_num "${CMAKE_ARGV6}")
+        set(resource_file "${CMAKE_ARGV7}")
+        set(resource_file_abspath "${CMAKE_ARGV8}")
+        set(compiler_id "${CMAKE_ARGV9}")
+        if(compiler_id STREQUAL "AppleClang")
+            string(CONCAT resource_file_asm_content
+                ".section __DATA,__data\n"
+                ".global _${library_name}_resource_${resource_num}_name\n"
+                ".align  4\n"
+                "_${library_name}_resource_${resource_num}_name:\n"
+                ".string \"${resource_file}\"\n"
+                ".global _${library_name}_resource_${resource_num}_data\n"
+                ".align  4\n"
+                "_${library_name}_resource_${resource_num}_data:\n"
+                ".incbin \"${resource_file_abspath}\"\n"
+                "data_end:\n"
+                ".global _${library_name}_resource_${resource_num}_size\n"
+                ".align  4\n"
+                "_${library_name}_resource_${resource_num}_size:\n"
+                ".int    data_end - _${library_name}_resource_${resource_num}_data\n"
+            )
+        else()
+            string(CONCAT resource_file_asm_content
+                ".section .rodata\n"
+                ".global ${library_name}_resource_${resource_num}_name\n"
+                ".align  4\n"
+                "${library_name}_resource_${resource_num}_name:\n"
+                ".string \"${resource_file}\"\n"
+                ".global ${library_name}_resource_${resource_num}_data\n"
+                ".align  4\n"
+                "${library_name}_resource_${resource_num}_data:\n"
+                ".incbin \"${resource_file_abspath}\"\n"
+                "data_end:\n"
+                ".global ${library_name}_resource_${resource_num}_size\n"
+                ".align  4\n"
+                "${library_name}_resource_${resource_num}_size:\n"
+                ".int    data_end - ${library_name}_resource_${resource_num}_data\n"
+            )
+        endif()
+        file(WRITE ${resource_file_asm} "${resource_file_asm_content}")
     elseif(${CMAKE_ARGV3} STREQUAL "loader")
         # Generate resource library loader
         set(loader_cxx "${CMAKE_ARGV4}")
@@ -113,21 +162,18 @@ else()
             "#include <map>\n"
             "#include <cstdint>\n"
             "\n"
-            "namespace ${library_name} {\n"
-            "    struct Resource {\n"
-            "        Resource(const std::string& resource_name, const std::vector<std::uint8_t>& resource_data) : m_resource_name(resource_name), m_resource_data(resource_data) {};\n"
-            "        const std::string m_resource_name;\n"
-            "        const std::vector<std::uint8_t> m_resource_data;\n"
-            "    };\n"
         )
         foreach(resource_num RANGE 1 ${max_resource_num})
             string(CONCAT loader_cxx_content
                 "${loader_cxx_content}"
-                "    extern Resource resource_${resource_num};\n"
+                    "    extern char ${library_name}_resource_${resource_num}_name[];\n"
+                    "    extern unsigned char ${library_name}_resource_${resource_num}_data[];\n"
+                    "    extern unsigned int ${library_name}_resource_${resource_num}_size;\n"
             )
         endforeach()
         string(CONCAT loader_cxx_content
             "${loader_cxx_content}"
+            "namespace ${library_name} {\n"
             "    const std::map<std::string, std::vector<std::uint8_t>>& resources() {\n"
             "        static std::map<std::string, std::vector<std::uint8_t>> resources;\n"
             "        if (!resources.empty()) {\n"
@@ -137,7 +183,7 @@ else()
         foreach(resource_num RANGE 1 ${max_resource_num})
             string(CONCAT loader_cxx_content
                 "${loader_cxx_content}"
-                "        resources[resource_${resource_num}.m_resource_name] = std::move(resource_${resource_num}.m_resource_data);\n"
+                "        resources[std::string(${library_name}_resource_${resource_num}_name)] = {${library_name}_resource_${resource_num}_data, ${library_name}_resource_${resource_num}_data+${library_name}_resource_${resource_num}_size};\n"
             )
         endforeach()
         string(CONCAT loader_cxx_content
